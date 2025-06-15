@@ -9,74 +9,100 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/inference-gateway/a2a/adk/server"
-	"github.com/inference-gateway/a2a/adk/server/config"
+	server "github.com/inference-gateway/a2a/adk/server"
+	config "github.com/inference-gateway/a2a/adk/server/config"
 	envconfig "github.com/sethvargo/go-envconfig"
-	"go.uber.org/zap"
+	zap "go.uber.org/zap"
 )
 
 // AI-Powered A2A Server Example
 //
 // This example demonstrates how to create an A2A server with AI capabilities.
-// It supports multiple LLM providers through environment variables.
+// It requires proper AI provider configuration to run.
 //
-// Configuration Environment Variables:
+// REQUIRED Configuration:
 //
-//	AGENT_CLIENT_API_KEY     - Required for AI features (your LLM provider API key)
-//	AGENT_CLIENT_PROVIDER    - LLM provider: "openai", "anthropic", "deepseek", "ollama" (default: "openai")
-//	AGENT_CLIENT_MODEL       - Model name (defaults based on provider):
-//	                           - OpenAI: "gpt-4"
-//	                           - Anthropic: "claude-3-5-sonnet-20241022"
-//	                           - DeepSeek: "deepseek-chat"
-//	                           - Ollama: "llama3.2"
-//	AGENT_CLIENT_BASE_URL    - API endpoint URL (custom deployments, inference gateway, etc.)
-//	PORT                     - Server port (default: "8080")
+//	AGENT_CLIENT_API_KEY - Your LLM provider API key (REQUIRED)
+//
+// Optional Configuration:
+//
+//	AGENT_CLIENT_PROVIDER - LLM provider: "openai", "anthropic", "deepseek", "ollama" (default: "openai")
+//	AGENT_CLIENT_MODEL    - Model name (uses provider defaults if not set)
+//	AGENT_CLIENT_BASE_URL - Custom API endpoint URL
+//	PORT                  - Server port (default: "8080")
 //
 // Examples:
 //
-//	# Using inference gateway (recommended)
-//	export AGENT_CLIENT_API_KEY="your-key" AGENT_CLIENT_BASE_URL="http://localhost:3000/v1" && go run cmd/aipowered/main.go
+//	# OpenAI (default)
+//	export AGENT_CLIENT_API_KEY="sk-..." && go run main.go
 //
-//	# Direct OpenAI connection
-//	export AGENT_CLIENT_API_KEY="sk-..." && go run cmd/aipowered/main.go
+//	# Anthropic
+//	export AGENT_CLIENT_API_KEY="sk-ant-..." AGENT_CLIENT_PROVIDER="anthropic" && go run main.go
 //
-//	# Direct Anthropic connection
-//	export AGENT_CLIENT_API_KEY="sk-ant-..." AGENT_CLIENT_PROVIDER="anthropic" && go run cmd/aipowered/main.go
+//	# Via Inference Gateway
+//	AGENT_CLIENT_API_KEY="test" AGENT_CLIENT_PROVIDER="deepseek" AGENT_CLIENT_MODEL="deepseek-chat" AGENT_CLIENT_BASE_URL="http://localhost:8080/v1" go run main.go
 //
-//	# Local Ollama
-//	export AGENT_CLIENT_PROVIDER="ollama" AGENT_CLIENT_MODEL="llama3.2" AGENT_CLIENT_BASE_URL="http://localhost:11434/v1" && go run cmd/aipowered/main.go
-//
-//	# Mock mode (no AI)
-//	go run cmd/aipowered/main.go
+// To run: go run main.go
 func main() {
-	fmt.Println("🤖 Starting AI-Powered A2A Server Example...")
+	fmt.Println("🤖 Starting AI-Powered A2A Server...")
 
 	// Step 1: Initialize logger
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		log.Fatalf("Failed to create logger: %v", err)
+		log.Fatalf("failed to create logger: %v", err)
 	}
 	defer logger.Sync()
 
-	// Step 2: Load configuration from environment
+	// Step 2: Check for required API key
+	apiKey := os.Getenv("AGENT_CLIENT_API_KEY")
+	if apiKey == "" {
+		fmt.Println("\n❌ ERROR: AI provider configuration required!")
+		fmt.Println("\n🔑 Please set AGENT_CLIENT_API_KEY environment variable:")
+		fmt.Println("\n📋 Examples:")
+		fmt.Println("  # OpenAI")
+		fmt.Println("  export AGENT_CLIENT_API_KEY=\"sk-...\"")
+		fmt.Println("\n  # Anthropic")
+		fmt.Println("  export AGENT_CLIENT_API_KEY=\"sk-ant-...\"")
+		fmt.Println("  export AGENT_CLIENT_PROVIDER=\"anthropic\"")
+		fmt.Println("\n  # Via Inference Gateway")
+		fmt.Println("  export AGENT_CLIENT_API_KEY=\"your-key\"")
+		fmt.Println("  export AGENT_CLIENT_BASE_URL=\"http://localhost:3000/v1\"")
+		fmt.Println("\n💡 For a server without AI, use the minimal example instead:")
+		fmt.Println("  go run ../minimal/main.go")
+		os.Exit(1)
+	}
+
+	// Step 3: Load configuration from environment
 	cfg := config.Config{
 		AgentName:        "AI-Powered Assistant",
-		AgentDescription: "An AI assistant with weather and time tools using configurable LLM providers",
+		AgentDescription: "An AI assistant with weather and time tools",
 		Port:             "8080",
+		QueueConfig: &config.QueueConfig{
+			CleanupInterval: 5 * time.Minute,
+		},
 	}
 
 	ctx := context.Background()
 	if err := envconfig.Process(ctx, &cfg); err != nil {
-		logger.Fatal("Failed to process environment config", zap.Error(err))
+		logger.Fatal("failed to process environment config", zap.Error(err))
 	}
 
-	// Step 3: Create a simple toolbox
+	// Step 4: Create AI agent with LLM client
+	llmClient, err := server.NewOpenAICompatibleLLMClient(cfg.AgentConfig, logger)
+	if err != nil {
+		logger.Fatal("failed to create LLM client", zap.Error(err))
+	}
+
+	agent := server.NewOpenAICompatibleAgentWithLLM(logger, llmClient)
+	agent.SetSystemPrompt("You are a helpful AI assistant. Be concise and friendly in your responses.")
+
+	// Step 5: Create toolbox with sample tools
 	toolBox := server.NewDefaultToolBox()
 
-	// Add a simple weather tool
+	// Add weather tool
 	weatherTool := server.NewBasicTool(
 		"get_weather",
-		"Get weather information for a location",
+		"Get current weather information for a location",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -89,50 +115,49 @@ func main() {
 		},
 		func(ctx context.Context, args map[string]interface{}) (string, error) {
 			location := args["location"].(string)
-			return fmt.Sprintf(`{"location": "%s", "temperature": "20°C", "condition": "sunny"}`, location), nil
+			return fmt.Sprintf(`{"location": "%s", "temperature": "22°C", "condition": "sunny", "humidity": "65%%"}`, location), nil
 		},
 	)
 	toolBox.AddTool(weatherTool)
 
-	// Step 4: Check for LLM configuration
-	var a2aServer server.A2AServer
-	if cfg.AgentConfig != nil && cfg.AgentConfig.APIKey != "" {
-		// With LLM - use the AgentConfig from environment
-		llmClient, err := server.NewOpenAICompatibleLLMClient(cfg.AgentConfig, logger)
-		if err != nil {
-			logger.Fatal("Failed to create LLM client", zap.Error(err))
-		}
-		agent := server.NewOpenAICompatibleAgentWithLLM(logger, llmClient)
-		a2aServer = server.SimpleA2AServerWithAgent(cfg, logger, agent)
-		logger.Info("✅ Server created with AI capabilities",
-			zap.String("provider", cfg.AgentConfig.Provider),
-			zap.String("model", cfg.AgentConfig.Model),
-			zap.String("base_url", cfg.AgentConfig.BaseURL))
-	} else {
-		// Without LLM - manual setup for mock mode
-		agent := server.NewDefaultOpenAICompatibleAgent(logger)
-		agent.SetSystemPrompt("You are a helpful assistant with access to tools.")
-		agent.SetToolBox(toolBox)
+	// Add time tool
+	timeTool := server.NewBasicTool(
+		"get_current_time",
+		"Get the current date and time",
+		map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		func(ctx context.Context, args map[string]interface{}) (string, error) {
+			now := time.Now()
+			return fmt.Sprintf(`{"current_time": "%s", "timezone": "%s"}`,
+				now.Format("2006-01-02 15:04:05"), now.Location()), nil
+		},
+	)
+	toolBox.AddTool(timeTool)
 
-		a2aServer = server.NewA2AServerBuilder(cfg, logger).
-			WithAgent(agent).
-			Build()
-		logger.Info("✅ Server created in mock mode (set AGENT_CLIENT_API_KEY for AI features)")
-		logger.Info("💡 To enable AI: export AGENT_CLIENT_API_KEY='your-key' [AGENT_CLIENT_PROVIDER='openai|anthropic|deepseek'] [AGENT_CLIENT_MODEL='model-name']")
-	}
+	agent.SetToolBox(toolBox)
 
-	// Step 5: Start server
+	// Step 6: Create and start server
+	a2aServer := server.SimpleA2AServerWithAgent(cfg, logger, agent)
+
+	logger.Info("✅ AI-powered A2A server created",
+		zap.String("provider", cfg.AgentConfig.Provider),
+		zap.String("model", cfg.AgentConfig.Model),
+		zap.String("tools", "weather, time"))
+
+	// Start server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
 		if err := a2aServer.Start(ctx); err != nil {
-			logger.Fatal("Server failed to start", zap.Error(err))
+			logger.Fatal("server failed to start", zap.Error(err))
 		}
 	}()
 
-	logger.Info("🌐 Server running", zap.String("port", cfg.Port))
-	fmt.Printf("\n🎯 Try this curl command:\n")
+	logger.Info("🌐 server running", zap.String("port", cfg.Port))
+	fmt.Printf("\n🎯 Test with curl:\n")
 	fmt.Printf(`curl -X POST http://localhost:%s/a2a \
   -H "Content-Type: application/json" \
   -d '{
@@ -146,27 +171,27 @@ func main() {
         "parts": [
           {
             "kind": "text",
-            "content": "What'\''s the weather in Paris?"
+            "text": "What'\''s the weather in Tokyo?"
           }
         ]
       }
     },
     "id": 1
-  }'
-`, cfg.Port)
+  }'`, cfg.Port)
+	fmt.Println()
 
-	// Step 6: Wait for shutdown
+	// Wait for shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("🛑 Shutting down...")
+	logger.Info("🛑 shutting down server...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
 	if err := a2aServer.Stop(shutdownCtx); err != nil {
-		logger.Error("Shutdown error", zap.Error(err))
+		logger.Error("shutdown error", zap.Error(err))
 	} else {
-		logger.Info("✅ Goodbye!")
+		logger.Info("✅ goodbye!")
 	}
 }

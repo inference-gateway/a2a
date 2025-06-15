@@ -48,7 +48,9 @@ func (mh *DefaultMessageHandler) HandleMessageSend(ctx context.Context, params a
 	task := mh.taskManager.CreateTask(*contextID, adk.TaskStateSubmitted, &params.Message)
 
 	if task != nil {
-		mh.logger.Info("message send handled", zap.String("task_id", task.ID))
+		mh.logger.Info("message send handled",
+			zap.String("task_id", task.ID),
+			zap.String("context_id", task.ContextID))
 	} else {
 		mh.logger.Error("failed to create task - task manager returned nil")
 		return nil, fmt.Errorf("failed to create task")

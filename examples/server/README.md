@@ -6,52 +6,68 @@ This directory contains examples demonstrating how to create A2A (Agent-to-Agent
 
 The A2A protocol enables agents to communicate with each other using JSON-RPC over HTTP. These examples show different approaches to creating A2A servers:
 
-1. **Basic Non-AI Server** - A minimal server without AI capabilities that handles A2A protocol messages using simple task handlers
-2. **AI-Powered Server** - A full-featured server with LLM integration and tool capabilities
+1. **Minimal Server** - A working server with custom task handler that provides simple responses without AI
+2. **AI-Powered Server** - A full-featured server with LLM integration and tool calling capabilities
 
 ## Quick Start
 
-### 1. Minimal Non-AI Server
+### 1. Minimal Server (No AI Required)
 
-The simplest way to create an A2A server is using `NewDefaultA2AServer()`. This creates a basic server that handles A2A protocol messages without any AI capabilities:
+A working A2A server with simple conversational responses using a custom task handler:
 
 ```bash
-go run cmd/minimal/main.go
+cd cmd/minimal
+go run main.go
 ```
 
 This minimal example:
 
-- ✅ Handles A2A protocol messages (`message/send`, `message/stream`, `tasks/get`, `tasks/cancel`)
-- ✅ Provides agent metadata via `/.well-known/agent.json`
+- ✅ Handles A2A protocol messages correctly (`message/send`, `tasks/get`, `tasks/cancel`)
+- ✅ Provides conversational responses (greetings, status, help, time)
+- ✅ Agent metadata via `/.well-known/agent.json`
 - ✅ Health check endpoint at `/health`
-- ✅ Automatic configuration from environment variables
-- ❌ No AI/LLM integration
-- ❌ No custom tools
-- ❌ No complex setup required
+- ✅ Echo functionality for any text input
+- ✅ **Works immediately** - no configuration required
+- ❌ No AI/LLM integration (by design)
+- ❌ No advanced tools or function calling
 
-This is perfect for understanding the basic A2A protocol or creating simple non-AI agents.
+Perfect for learning the A2A protocol, creating deterministic business logic agents, or simple automation tasks.
 
-### 2. AI-Powered Server with Tools
+### 2. AI-Powered Server (API Key Required)
 
-For AI capabilities, use the aipowered example which supports both modes:
+For AI capabilities with LLM integration and tool calling:
 
 ```bash
-# Without AI (mock mode)
-go run cmd/aipowered/main.go
+cd cmd/aipowered
 
-# With AI (set your API key)
-LLM_API_KEY=your-api-key go run cmd/aipowered/main.go
+# Required: Set your API key
+export AGENT_CLIENT_API_KEY="sk-..."  # OpenAI
+# OR
+export AGENT_CLIENT_API_KEY="sk-ant-..." AGENT_CLIENT_PROVIDER="anthropic"  # Anthropic
+
+go run main.go
 ```
+
+This AI-powered example:
+
+- ✅ **Requires valid API key** - will not start without proper configuration
+- ✅ Supports multiple LLM providers (OpenAI, Anthropic, DeepSeek, Ollama)
+- ✅ Tool calling capabilities (weather, time tools included)
+- ✅ Full conversation context and history
+- ✅ Works with Inference Gateway for unified LLM access
+- ✅ Production-ready AI agent architecture
 
 ## Example Usage
 
-Once your server is running, you can test it with the A2A protocol:
+### Test the A2A Protocol
+
+Both servers support the standard A2A protocol. Here's how to test them:
 
 ```bash
-# Test agent info
-curl http://localhost:8080/.well-known/agent.json
+# Get agent information
+curl http://localhost:8080/.well-known/agent.json | jq .
 
-# Send a message
+# Send a message (proper A2A format)
 curl -X POST http://localhost:8080/a2a \
   -H "Content-Type: application/json" \
   -d '{
@@ -59,35 +75,96 @@ curl -X POST http://localhost:8080/a2a \
     "method": "message/send",
     "params": {
       "message": {
+        "kind": "message",
+        "messageId": "msg-001",
         "role": "user",
-        "content": "Hello!"
+        "parts": [
+          {
+            "kind": "text",
+            "text": "Hello! Can you help me?"
+          }
+        ]
       }
     },
     "id": 1
-  }'
+  }' | jq .
+
+# Get task results
+curl -X POST http://localhost:8080/a2a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tasks/get",
+    "params": {
+      "id": "TASK_ID_FROM_PREVIOUS_RESPONSE"
+    },
+    "id": 2
+  }' | jq .
 ```
 
 ## Configuration
 
-All servers support configuration via environment variables:
-
-- `AGENT_NAME` - Name of your agent (default: "helloworld-agent")
-- `AGENT_DESCRIPTION` - Description of your agent
+### Minimal Server
 - `PORT` - Server port (default: "8080")
-- `DEBUG` - Enable debug logging (default: false)
-- `LLM_API_KEY` - API key for LLM provider (enables AI features)
+- No other configuration required!
+
+### AI-Powered Server
+**Required:**
+- `AGENT_CLIENT_API_KEY` - Your LLM provider API key
+
+**Required for specific providers:**
+- `AGENT_CLIENT_PROVIDER` - LLM provider: "openai", "anthropic", "deepseek", "ollama" (required for non-OpenAI providers)
+- `AGENT_CLIENT_BASE_URL` - Custom API endpoint (required for Ollama, Inference Gateway, or custom deployments)
+
+**Optional:**
+- `AGENT_CLIENT_MODEL` - Model name (uses provider defaults if not specified)
+- `PORT` - Server port (default: "8080")
+
+### Provider Examples
+
+```bash
+# OpenAI (default)
+export AGENT_CLIENT_API_KEY="sk-..."
+
+# Anthropic
+export AGENT_CLIENT_API_KEY="sk-ant-..."
+export AGENT_CLIENT_PROVIDER="anthropic"
+
+# Via Inference Gateway
+export AGENT_CLIENT_API_KEY="your-key"
+export AGENT_CLIENT_BASE_URL="http://localhost:3000/v1"
+
+# Local Ollama
+export AGENT_CLIENT_PROVIDER="ollama"
+export AGENT_CLIENT_MODEL="llama3.2"
+export AGENT_CLIENT_BASE_URL="http://localhost:11434/v1"
+```
+
+## Architecture
+
+### Minimal Server
+- **CustomTaskHandler**: Processes messages with simple business logic
+- **No LLM dependency**: Fast, deterministic responses
+- **A2A compliant**: Full protocol support without AI complexity
+
+### AI-Powered Server  
+- **OpenAICompatibleAgent**: Handles LLM communication
+- **ToolBox**: Function calling capabilities  
+- **Multiple LLM Providers**: Flexible provider support
+- **Conversation Management**: Context-aware interactions
 
 ## Files
 
-- `cmd/minimal/main.go` - Minimal non-AI server example using `NewDefaultA2AServer()`
-- `cmd/aipowered/main.go` - Full-featured example with AI support and tools
-- `main.go` - Placeholder with general guidance
+- `cmd/minimal/main.go` - Simple working server with custom task handler
+- `cmd/aipowered/main.go` - AI-powered server with LLM integration and tools
+- `README.md` - This documentation
 
 ## Next Steps
 
-1. Start with the minimal example to understand the basic A2A protocol
-2. Add custom task handlers for your specific use case
-3. Integrate LLM providers for AI capabilities
-4. Add custom tools for enhanced functionality
+1. **Start Simple**: Run the minimal example to understand A2A protocol basics
+2. **Add Business Logic**: Customize the task handler for your specific use case  
+3. **Add AI**: Use the AI-powered example with your API key for intelligent responses
+4. **Extend Tools**: Add custom tools and functions for your domain
+5. **Production**: See the main ADK documentation for advanced patterns and deployment
 
-For more advanced usage, see the ADK documentation and builder patterns in the main codebase.
+For more information, see the [A2A ADK documentation](../../README.md) and [A2A Protocol Specification](https://github.com/inference-gateway/schemas/tree/main/a2a).

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/inference-gateway/a2a/adk"
@@ -95,6 +96,20 @@ func NewClientWithConfig(config *Config) A2AClient {
 	}
 }
 
+// getA2AEndpointURL constructs the A2A endpoint URL by appending /a2a to the base URL
+func (c *Client) getA2AEndpointURL() string {
+	baseURL := c.config.BaseURL
+
+	if strings.HasSuffix(baseURL, "/a2a") {
+		return baseURL
+	}
+
+	if strings.HasSuffix(baseURL, "/") {
+		return baseURL + "a2a"
+	}
+	return baseURL + "/a2a"
+}
+
 // SendTask sends a task to the agent (primary interface following official A2A pattern)
 func (c *Client) SendTask(ctx context.Context, params adk.MessageSendParams) (*adk.JSONRPCSuccessResponse, error) {
 	c.logger.Debug("sending task",
@@ -163,7 +178,7 @@ func (c *Client) SendTaskStreaming(ctx context.Context, params adk.MessageSendPa
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.config.BaseURL, bytes.NewBuffer(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.getA2AEndpointURL(), bytes.NewBuffer(body))
 	if err != nil {
 		c.logger.Error("failed to create request", zap.Error(err))
 		return fmt.Errorf("failed to create request: %w", err)
@@ -172,7 +187,7 @@ func (c *Client) SendTaskStreaming(ctx context.Context, params adk.MessageSendPa
 	c.setHeaders(httpReq)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	c.logger.Debug("sending streaming request", zap.String("url", c.config.BaseURL))
+	c.logger.Debug("sending streaming request", zap.String("url", c.getA2AEndpointURL()))
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -345,7 +360,7 @@ func (c *Client) doRequestWithContext(ctx context.Context, req adk.JSONRPCReques
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.config.BaseURL, bytes.NewBuffer(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.getA2AEndpointURL(), bytes.NewBuffer(body))
 	if err != nil {
 		c.logger.Error("failed to create request", zap.Error(err))
 		return fmt.Errorf("failed to create request: %w", err)

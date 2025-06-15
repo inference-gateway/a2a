@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -102,7 +103,7 @@ func TestDefaultTaskManager_CreateTask(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := zap.NewNop()
-			taskManager := server.NewDefaultTaskManager(logger)
+			taskManager := server.NewDefaultTaskManager(logger, 20)
 
 			task := taskManager.CreateTask(tt.contextID, tt.state, tt.message)
 
@@ -124,7 +125,7 @@ func TestDefaultTaskManager_CreateTask(t *testing.T) {
 
 func TestDefaultTaskManager_GetTask(t *testing.T) {
 	logger := zap.NewNop()
-	taskManager := server.NewDefaultTaskManager(logger)
+	taskManager := server.NewDefaultTaskManager(logger, 20)
 
 	message := &adk.Message{
 		Kind:      "message",
@@ -222,7 +223,7 @@ func TestDefaultTaskManager_UpdateTask(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := zap.NewNop()
-			taskManager := server.NewDefaultTaskManager(logger)
+			taskManager := server.NewDefaultTaskManager(logger, 20)
 
 			originalMessage := &adk.Message{
 				Kind:      "message",
@@ -265,7 +266,7 @@ func TestDefaultTaskManager_UpdateTask(t *testing.T) {
 
 func TestDefaultTaskManager_UpdateNonExistentTask(t *testing.T) {
 	logger := zap.NewNop()
-	taskManager := server.NewDefaultTaskManager(logger)
+	taskManager := server.NewDefaultTaskManager(logger, 20)
 
 	message := &adk.Message{
 		Kind:      "message",
@@ -286,7 +287,7 @@ func TestDefaultTaskManager_UpdateNonExistentTask(t *testing.T) {
 
 func TestDefaultTaskManager_CleanupCompletedTasks(t *testing.T) {
 	logger := zap.NewNop()
-	taskManager := server.NewDefaultTaskManager(logger)
+	taskManager := server.NewDefaultTaskManager(logger, 20)
 
 	submittedTask := taskManager.CreateTask("context-1", adk.TaskStateSubmitted, nil)
 	workingTask := taskManager.CreateTask("context-2", adk.TaskStateWorking, nil)
@@ -316,7 +317,7 @@ func TestDefaultTaskManager_CleanupCompletedTasks(t *testing.T) {
 
 func TestDefaultTaskManager_ConcurrentAccess(t *testing.T) {
 	logger := zap.NewNop()
-	taskManager := server.NewDefaultTaskManager(logger)
+	taskManager := server.NewDefaultTaskManager(logger, 20)
 
 	numGoroutines := 10
 	tasksChan := make(chan *adk.Task, numGoroutines)
@@ -351,14 +352,443 @@ func TestDefaultTaskManager_ConcurrentAccess(t *testing.T) {
 
 func TestNewDefaultTaskManager(t *testing.T) {
 	logger := zap.NewNop()
-	taskManager := server.NewDefaultTaskManager(logger)
+	taskManager := server.NewDefaultTaskManager(logger, 20)
 
 	assert.NotNil(t, taskManager)
 }
 
 func TestNewDefaultTaskManager_WithNilLogger(t *testing.T) {
 	assert.NotPanics(t, func() {
-		taskManager := server.NewDefaultTaskManager(nil)
+		taskManager := server.NewDefaultTaskManager(nil, 20)
 		assert.NotNil(t, taskManager)
 	})
+}
+
+func TestDefaultTaskManager_ConversationContextPreservation(t *testing.T) {
+	logger := zap.NewNop()
+	taskManager := server.NewDefaultTaskManager(logger, 20)
+
+	contextID := "test-conversation-context"
+
+	firstMessage := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-1",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Hello, what's the weather like?",
+			},
+		},
+	}
+
+	task1 := taskManager.CreateTask(contextID, adk.TaskStateSubmitted, firstMessage)
+	assert.NotNil(t, task1)
+	assert.Equal(t, contextID, task1.ContextID)
+	assert.Len(t, task1.History, 1)
+	assert.Equal(t, *firstMessage, task1.History[0])
+
+	assistantResponse1 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-response-1",
+		Role:      "assistant",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "It's sunny today with a temperature of 72°F.",
+			},
+		},
+	}
+
+	err := taskManager.UpdateTask(task1.ID, adk.TaskStateCompleted, assistantResponse1)
+	assert.NoError(t, err)
+
+	updatedTask1, exists := taskManager.GetTask(task1.ID)
+	assert.True(t, exists)
+	assert.Len(t, updatedTask1.History, 2)
+	assert.Equal(t, *firstMessage, updatedTask1.History[0])
+	assert.Equal(t, *assistantResponse1, updatedTask1.History[1])
+
+	secondMessage := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-2",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "What about tomorrow?",
+			},
+		},
+	}
+
+	task2 := taskManager.CreateTask(contextID, adk.TaskStateSubmitted, secondMessage)
+	assert.NotNil(t, task2)
+	assert.Equal(t, contextID, task2.ContextID)
+	assert.NotEqual(t, task1.ID, task2.ID)
+
+	assert.Len(t, task2.History, 3)
+	assert.Equal(t, *firstMessage, task2.History[0])
+	assert.Equal(t, *assistantResponse1, task2.History[1])
+	assert.Equal(t, *secondMessage, task2.History[2])
+
+	assistantResponse2 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-response-2",
+		Role:      "assistant",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Tomorrow will be partly cloudy with a high of 68°F.",
+			},
+		},
+	}
+
+	err = taskManager.UpdateTask(task2.ID, adk.TaskStateCompleted, assistantResponse2)
+	assert.NoError(t, err)
+
+	updatedTask2, exists := taskManager.GetTask(task2.ID)
+	assert.True(t, exists)
+	assert.Len(t, updatedTask2.History, 4)
+	assert.Equal(t, *firstMessage, updatedTask2.History[0])
+	assert.Equal(t, *assistantResponse1, updatedTask2.History[1])
+	assert.Equal(t, *secondMessage, updatedTask2.History[2])
+	assert.Equal(t, *assistantResponse2, updatedTask2.History[3])
+
+	thirdMessage := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-3",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Should I bring an umbrella?",
+			},
+		},
+	}
+
+	task3 := taskManager.CreateTask(contextID, adk.TaskStateSubmitted, thirdMessage)
+	assert.NotNil(t, task3)
+	assert.Equal(t, contextID, task3.ContextID)
+
+	assert.Len(t, task3.History, 5)
+	assert.Equal(t, *firstMessage, task3.History[0])
+	assert.Equal(t, *assistantResponse1, task3.History[1])
+	assert.Equal(t, *secondMessage, task3.History[2])
+	assert.Equal(t, *assistantResponse2, task3.History[3])
+	assert.Equal(t, *thirdMessage, task3.History[4])
+}
+
+func TestDefaultTaskManager_ConversationHistoryIsolation(t *testing.T) {
+	logger := zap.NewNop()
+	taskManager := server.NewDefaultTaskManager(logger, 20)
+
+	contextID1 := "context-1"
+	contextID2 := "context-2"
+
+	message1 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-1",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Message for context 1",
+			},
+		},
+	}
+
+	message2 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-2",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Message for context 2",
+			},
+		},
+	}
+
+	task1 := taskManager.CreateTask(contextID1, adk.TaskStateSubmitted, message1)
+	task2 := taskManager.CreateTask(contextID2, adk.TaskStateSubmitted, message2)
+
+	assert.Len(t, task1.History, 1)
+	assert.Equal(t, *message1, task1.History[0])
+
+	assert.Len(t, task2.History, 1)
+	assert.Equal(t, *message2, task2.History[0])
+
+	response1 := &adk.Message{
+		Kind:      "message",
+		MessageID: "response-1",
+		Role:      "assistant",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Response to context 1",
+			},
+		},
+	}
+
+	err := taskManager.UpdateTask(task1.ID, adk.TaskStateCompleted, response1)
+	assert.NoError(t, err)
+
+	message3 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-3",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Follow-up for context 1",
+			},
+		},
+	}
+
+	task3 := taskManager.CreateTask(contextID1, adk.TaskStateSubmitted, message3)
+
+	assert.Len(t, task3.History, 3)
+	assert.Equal(t, *message1, task3.History[0])
+	assert.Equal(t, *response1, task3.History[1])
+	assert.Equal(t, *message3, task3.History[2])
+
+	message4 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-4",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Follow-up for context 2",
+			},
+		},
+	}
+
+	task4 := taskManager.CreateTask(contextID2, adk.TaskStateSubmitted, message4)
+
+	assert.Len(t, task4.History, 2)
+	assert.Equal(t, *message2, task4.History[0])
+	assert.Equal(t, *message4, task4.History[1])
+}
+
+func TestDefaultTaskManager_GetConversationHistory(t *testing.T) {
+	logger := zap.NewNop()
+	taskManager := server.NewDefaultTaskManager(logger, 20)
+
+	contextID := "test-context"
+
+	history := taskManager.GetConversationHistory(contextID)
+	assert.Empty(t, history)
+
+	message := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-1",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Test message",
+			},
+		},
+	}
+
+	task := taskManager.CreateTask(contextID, adk.TaskStateSubmitted, message)
+
+	response := &adk.Message{
+		Kind:      "message",
+		MessageID: "response-1",
+		Role:      "assistant",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Test response",
+			},
+		},
+	}
+
+	err := taskManager.UpdateTask(task.ID, adk.TaskStateCompleted, response)
+	assert.NoError(t, err)
+
+	history = taskManager.GetConversationHistory(contextID)
+	assert.Len(t, history, 2)
+	assert.Equal(t, *message, history[0])
+	assert.Equal(t, *response, history[1])
+
+	history[0].Parts = []adk.Part{
+		map[string]interface{}{
+			"kind": "text",
+			"text": "Modified message",
+		},
+	}
+
+	freshHistory := taskManager.GetConversationHistory(contextID)
+	assert.Len(t, freshHistory, 2)
+	assert.Equal(t, "Test message", freshHistory[0].Parts[0].(map[string]interface{})["text"])
+}
+
+func TestDefaultTaskManager_UpdateConversationHistory(t *testing.T) {
+	logger := zap.NewNop()
+	taskManager := server.NewDefaultTaskManager(logger, 20)
+
+	contextID := "test-context"
+
+	messages := []adk.Message{
+		{
+			Kind:      "message",
+			MessageID: "msg-1",
+			Role:      "user",
+			Parts: []adk.Part{
+				map[string]interface{}{
+					"kind": "text",
+					"text": "First message",
+				},
+			},
+		},
+		{
+			Kind:      "message",
+			MessageID: "msg-2",
+			Role:      "assistant",
+			Parts: []adk.Part{
+				map[string]interface{}{
+					"kind": "text",
+					"text": "First response",
+				},
+			},
+		},
+	}
+
+	taskManager.UpdateConversationHistory(contextID, messages)
+
+	history := taskManager.GetConversationHistory(contextID)
+	assert.Len(t, history, 2)
+	assert.Equal(t, messages[0], history[0])
+	assert.Equal(t, messages[1], history[1])
+
+	messages[0].Parts = []adk.Part{
+		map[string]interface{}{
+			"kind": "text",
+			"text": "Modified message",
+		},
+	}
+
+	freshHistory := taskManager.GetConversationHistory(contextID)
+	assert.Equal(t, "First message", freshHistory[0].Parts[0].(map[string]interface{})["text"])
+}
+
+func TestDefaultTaskManager_ConversationHistoryLimit(t *testing.T) {
+	logger := zap.NewNop()
+	maxHistory := 3
+	taskManager := server.NewDefaultTaskManager(logger, maxHistory)
+
+	contextID := "test-context"
+
+	messages := []adk.Message{
+		{Kind: "message", MessageID: "msg-1", Role: "user", Parts: []adk.Part{map[string]interface{}{"kind": "text", "text": "Message 1"}}},
+		{Kind: "message", MessageID: "msg-2", Role: "assistant", Parts: []adk.Part{map[string]interface{}{"kind": "text", "text": "Response 1"}}},
+		{Kind: "message", MessageID: "msg-3", Role: "user", Parts: []adk.Part{map[string]interface{}{"kind": "text", "text": "Message 2"}}},
+		{Kind: "message", MessageID: "msg-4", Role: "assistant", Parts: []adk.Part{map[string]interface{}{"kind": "text", "text": "Response 2"}}},
+		{Kind: "message", MessageID: "msg-5", Role: "user", Parts: []adk.Part{map[string]interface{}{"kind": "text", "text": "Message 3"}}},
+	}
+
+	taskManager.UpdateConversationHistory(contextID, messages)
+
+	history := taskManager.GetConversationHistory(contextID)
+	assert.Len(t, history, maxHistory)
+
+	assert.Equal(t, "msg-3", history[0].MessageID)
+	assert.Equal(t, "msg-4", history[1].MessageID)
+	assert.Equal(t, "msg-5", history[2].MessageID)
+}
+
+func TestDefaultTaskManager_ConversationHistoryLimitViaCreateTask(t *testing.T) {
+	logger := zap.NewNop()
+	maxHistory := 2
+	taskManager := server.NewDefaultTaskManager(logger, maxHistory)
+
+	contextID := "test-context"
+
+	message1 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-1",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "First message",
+			},
+		},
+	}
+	task1 := taskManager.CreateTask(contextID, adk.TaskStateSubmitted, message1)
+
+	response1 := &adk.Message{
+		Kind:      "message",
+		MessageID: "response-1",
+		Role:      "assistant",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "First response",
+			},
+		},
+	}
+	err := taskManager.UpdateTask(task1.ID, adk.TaskStateCompleted, response1)
+	assert.NoError(t, err)
+
+	message2 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-2",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Second message",
+			},
+		},
+	}
+	_ = taskManager.CreateTask(contextID, adk.TaskStateSubmitted, message2)
+
+	message3 := &adk.Message{
+		Kind:      "message",
+		MessageID: "msg-3",
+		Role:      "user",
+		Parts: []adk.Part{
+			map[string]interface{}{
+				"kind": "text",
+				"text": "Third message",
+			},
+		},
+	}
+	task3 := taskManager.CreateTask(contextID, adk.TaskStateSubmitted, message3)
+
+	assert.LessOrEqual(t, len(task3.History), maxHistory)
+
+	assert.Equal(t, "msg-3", task3.History[len(task3.History)-1].MessageID)
+}
+
+func TestDefaultTaskManager_ConversationHistoryLimitZeroDefault(t *testing.T) {
+	logger := zap.NewNop()
+	taskManager := server.NewDefaultTaskManager(logger, 0)
+
+	contextID := "test-context"
+	messages := make([]adk.Message, 25)
+	for i := 0; i < 25; i++ {
+		messages[i] = adk.Message{
+			Kind:      "message",
+			MessageID: fmt.Sprintf("msg-%d", i),
+			Role:      "user",
+			Parts: []adk.Part{
+				map[string]interface{}{
+					"kind": "text",
+					"text": fmt.Sprintf("Message %d", i),
+				},
+			},
+		}
+	}
+
+	taskManager.UpdateConversationHistory(contextID, messages)
+	history := taskManager.GetConversationHistory(contextID)
+
+	assert.Len(t, history, 20)
+	assert.Equal(t, "msg-5", history[0].MessageID)
+	assert.Equal(t, "msg-24", history[19].MessageID)
 }

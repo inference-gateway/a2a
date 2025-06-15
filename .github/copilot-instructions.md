@@ -1,6 +1,6 @@
 # Custom Instructions for Copilot
 
-Today is June 12, 2025.
+Today is June 15, 2025.
 
 - Always use context7 to check for the latest updates, features, or best practices of a library relevant to the task at hand.
 - Always prefer Table-Driven Testing: When writing tests.
@@ -54,3 +54,7 @@ Today is June 12, 2025.
 ### Internal Tools
 
 - **[Internal Tools](https://github.com/inference-gateway/tools)** - Collection of internal tools and utilities
+
+## A2A Official Documentation
+
+- **[A2A Official Docs](https://google-a2a.github.io/A2A/latest/)** - Official documentation for A2A agents and integrations

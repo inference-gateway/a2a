@@ -38,6 +38,17 @@ type FakeTaskManager struct {
 	createTaskReturnsOnCall map[int]struct {
 		result1 *adk.Task
 	}
+	GetConversationHistoryStub        func(string) []adk.Message
+	getConversationHistoryMutex       sync.RWMutex
+	getConversationHistoryArgsForCall []struct {
+		arg1 string
+	}
+	getConversationHistoryReturns struct {
+		result1 []adk.Message
+	}
+	getConversationHistoryReturnsOnCall map[int]struct {
+		result1 []adk.Message
+	}
 	GetTaskStub        func(string) (*adk.Task, bool)
 	getTaskMutex       sync.RWMutex
 	getTaskArgsForCall []struct {
@@ -65,6 +76,12 @@ type FakeTaskManager struct {
 	pollTaskStatusReturnsOnCall map[int]struct {
 		result1 *adk.Task
 		result2 error
+	}
+	UpdateConversationHistoryStub        func(string, []adk.Message)
+	updateConversationHistoryMutex       sync.RWMutex
+	updateConversationHistoryArgsForCall []struct {
+		arg1 string
+		arg2 []adk.Message
 	}
 	UpdateTaskStub        func(string, adk.TaskState, *adk.Message) error
 	updateTaskMutex       sync.RWMutex
@@ -231,6 +248,67 @@ func (fake *FakeTaskManager) CreateTaskReturnsOnCall(i int, result1 *adk.Task) {
 	}{result1}
 }
 
+func (fake *FakeTaskManager) GetConversationHistory(arg1 string) []adk.Message {
+	fake.getConversationHistoryMutex.Lock()
+	ret, specificReturn := fake.getConversationHistoryReturnsOnCall[len(fake.getConversationHistoryArgsForCall)]
+	fake.getConversationHistoryArgsForCall = append(fake.getConversationHistoryArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.GetConversationHistoryStub
+	fakeReturns := fake.getConversationHistoryReturns
+	fake.recordInvocation("GetConversationHistory", []interface{}{arg1})
+	fake.getConversationHistoryMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeTaskManager) GetConversationHistoryCallCount() int {
+	fake.getConversationHistoryMutex.RLock()
+	defer fake.getConversationHistoryMutex.RUnlock()
+	return len(fake.getConversationHistoryArgsForCall)
+}
+
+func (fake *FakeTaskManager) GetConversationHistoryCalls(stub func(string) []adk.Message) {
+	fake.getConversationHistoryMutex.Lock()
+	defer fake.getConversationHistoryMutex.Unlock()
+	fake.GetConversationHistoryStub = stub
+}
+
+func (fake *FakeTaskManager) GetConversationHistoryArgsForCall(i int) string {
+	fake.getConversationHistoryMutex.RLock()
+	defer fake.getConversationHistoryMutex.RUnlock()
+	argsForCall := fake.getConversationHistoryArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeTaskManager) GetConversationHistoryReturns(result1 []adk.Message) {
+	fake.getConversationHistoryMutex.Lock()
+	defer fake.getConversationHistoryMutex.Unlock()
+	fake.GetConversationHistoryStub = nil
+	fake.getConversationHistoryReturns = struct {
+		result1 []adk.Message
+	}{result1}
+}
+
+func (fake *FakeTaskManager) GetConversationHistoryReturnsOnCall(i int, result1 []adk.Message) {
+	fake.getConversationHistoryMutex.Lock()
+	defer fake.getConversationHistoryMutex.Unlock()
+	fake.GetConversationHistoryStub = nil
+	if fake.getConversationHistoryReturnsOnCall == nil {
+		fake.getConversationHistoryReturnsOnCall = make(map[int]struct {
+			result1 []adk.Message
+		})
+	}
+	fake.getConversationHistoryReturnsOnCall[i] = struct {
+		result1 []adk.Message
+	}{result1}
+}
+
 func (fake *FakeTaskManager) GetTask(arg1 string) (*adk.Task, bool) {
 	fake.getTaskMutex.Lock()
 	ret, specificReturn := fake.getTaskReturnsOnCall[len(fake.getTaskArgsForCall)]
@@ -361,6 +439,44 @@ func (fake *FakeTaskManager) PollTaskStatusReturnsOnCall(i int, result1 *adk.Tas
 	}{result1, result2}
 }
 
+func (fake *FakeTaskManager) UpdateConversationHistory(arg1 string, arg2 []adk.Message) {
+	var arg2Copy []adk.Message
+	if arg2 != nil {
+		arg2Copy = make([]adk.Message, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.updateConversationHistoryMutex.Lock()
+	fake.updateConversationHistoryArgsForCall = append(fake.updateConversationHistoryArgsForCall, struct {
+		arg1 string
+		arg2 []adk.Message
+	}{arg1, arg2Copy})
+	stub := fake.UpdateConversationHistoryStub
+	fake.recordInvocation("UpdateConversationHistory", []interface{}{arg1, arg2Copy})
+	fake.updateConversationHistoryMutex.Unlock()
+	if stub != nil {
+		fake.UpdateConversationHistoryStub(arg1, arg2)
+	}
+}
+
+func (fake *FakeTaskManager) UpdateConversationHistoryCallCount() int {
+	fake.updateConversationHistoryMutex.RLock()
+	defer fake.updateConversationHistoryMutex.RUnlock()
+	return len(fake.updateConversationHistoryArgsForCall)
+}
+
+func (fake *FakeTaskManager) UpdateConversationHistoryCalls(stub func(string, []adk.Message)) {
+	fake.updateConversationHistoryMutex.Lock()
+	defer fake.updateConversationHistoryMutex.Unlock()
+	fake.UpdateConversationHistoryStub = stub
+}
+
+func (fake *FakeTaskManager) UpdateConversationHistoryArgsForCall(i int) (string, []adk.Message) {
+	fake.updateConversationHistoryMutex.RLock()
+	defer fake.updateConversationHistoryMutex.RUnlock()
+	argsForCall := fake.updateConversationHistoryArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
 func (fake *FakeTaskManager) UpdateTask(arg1 string, arg2 adk.TaskState, arg3 *adk.Message) error {
 	fake.updateTaskMutex.Lock()
 	ret, specificReturn := fake.updateTaskReturnsOnCall[len(fake.updateTaskArgsForCall)]
@@ -433,10 +549,14 @@ func (fake *FakeTaskManager) Invocations() map[string][][]interface{} {
 	defer fake.cleanupCompletedTasksMutex.RUnlock()
 	fake.createTaskMutex.RLock()
 	defer fake.createTaskMutex.RUnlock()
+	fake.getConversationHistoryMutex.RLock()
+	defer fake.getConversationHistoryMutex.RUnlock()
 	fake.getTaskMutex.RLock()
 	defer fake.getTaskMutex.RUnlock()
 	fake.pollTaskStatusMutex.RLock()
 	defer fake.pollTaskStatusMutex.RUnlock()
+	fake.updateConversationHistoryMutex.RLock()
+	defer fake.updateConversationHistoryMutex.RUnlock()
 	fake.updateTaskMutex.RLock()
 	defer fake.updateTaskMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}

@@ -24,7 +24,8 @@ func NewAgentTaskHandler(logger *zap.Logger, agent OpenAICompatibleAgent) *Agent
 // HandleTask processes a task by delegating to the OpenAI-compatible agent
 func (h *AgentTaskHandler) HandleTask(ctx context.Context, task *adk.Task, message *adk.Message) (*adk.Task, error) {
 	h.logger.Info("processing task with openai-compatible agent",
-		zap.String("task_id", task.ID))
+		zap.String("task_id", task.ID),
+		zap.String("context_id", task.ContextID))
 
 	if h.agent == nil {
 		h.logger.Error("agent not configured")

@@ -34,6 +34,7 @@ func NewDefaultTaskHandler(logger *zap.Logger) *DefaultTaskHandler {
 func (th *DefaultTaskHandler) HandleTask(ctx context.Context, task *adk.Task, message *adk.Message) (*adk.Task, error) {
 	th.logger.Error("default task handler should not be used directly",
 		zap.String("task_id", task.ID),
+		zap.String("context_id", task.ContextID),
 		zap.String("message", "configure an agent or custom task handler"))
 
 	return nil, fmt.Errorf("no task handler configured: use AgentTaskHandler with an OpenAI-compatible agent or implement a custom TaskHandler")
